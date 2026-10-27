@@ -1,0 +1,16 @@
+-- Extraer todas las personas que están registradas en la tabla de personas de Kimkelén sin importar si son alumnos, docentes, etc.
+-- El objetivo es realizar la 1° etapa de migración con la tabla mig_personas para Guarani 3
+
+SELECT 
+	p.lastname,
+  p.firstname,
+  p.identification_type,
+  p.identification_number,
+  p.sex,
+  p.birthdate,
+  country.name,
+  state.name
+        
+FROM person p
+  JOIN country ON country.id = p.birth_country
+	JOIN state ON state.id = p.birth_state  
