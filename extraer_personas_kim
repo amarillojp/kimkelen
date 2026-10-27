@@ -3,14 +3,16 @@
 
 SELECT 
 	p.lastname,
-  p.firstname,
-  p.identification_type,
-  p.identification_number,
-  p.sex,
-  p.birthdate,
-  country.name,
-  state.name
+    p.firstname,
+    p.identification_type,
+    p.identification_number,
+    p.sex,
+    p.birthdate,
+    country.name,
+    state.name,
+    city.name
         
-FROM person p
-  JOIN country ON country.id = p.birth_country
-	JOIN state ON state.id = p.birth_state  
+    FROM person p
+    JOIN country ON country.id = p.birth_country
+	JOIN state ON state.id = p.birth_state
+    JOIN city ON city.id = p.birth_city
