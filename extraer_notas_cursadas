@@ -1,0 +1,153 @@
+/* ============================================================
+   MIGRACIÓN: ACTAS DE CURSADA / PROMOCIÓN
+   Motor: MySQL compatible con versiones antiguas
+
+   CRITERIO DE SEPARACIÓN
+   - Parte de student_approved_course_subject.
+   - Excluye al alumno/materia cuando existe un examen aprobado
+     para el mismo career_subject.
+   - Nota mínima de examen aprobatorio: 6 (modificable).
+
+   CAMPOS PROVISORIOS PARA REVISAR
+   - nro_acta, nro_libro, nro_tomo, actividad_codigo,
+     propuesta, plan_version, folios, escala_nota.
+   ============================================================ */
+
+SET @nota_aprobacion_examen := 6;
+
+SELECT
+    'P' AS origen,
+
+    'COMPLETAR' AS nro_acta,
+
+    DATE_FORMAT(
+        COALESCE(
+            sacs.updated_at,
+            sacs.created_at,
+            CONCAT(sy.year, '-12-01')
+        ),
+        '%d/%m/%Y'
+    ) AS fecha,
+
+    'COMPLETAR' AS renglones_folio,
+
+    '1' AS nro_libro,
+    '1' AS nro_tomo,
+
+    c.name AS comision_nombre,
+    sy.year AS anio_academico,
+    CONCAT('Ciclo Lectivo ', sy.year) AS periodo_lectivo_nombre,
+
+    CONCAT('KIM-CS-', LPAD(cs.id, 6, '0')) AS actividad_codigo,
+
+    COALESCE(p.identification_type, 0) AS tipo_documento,
+    p.identification_number AS nro_documento,
+
+    ca.id AS propuesta,
+    1 AS plan_version,
+
+    '' AS folio_fisico,
+    sacs.course_subject_id AS folio,
+
+    (
+        SELECT COUNT(*)
+        FROM student_approved_course_subject sacs_row
+        INNER JOIN course_subject cos_row
+            ON cos_row.id = sacs_row.course_subject_id
+        INNER JOIN career_subject_school_year cssy_row
+            ON cssy_row.id = cos_row.career_subject_school_year_id
+        WHERE sacs_row.course_subject_id = sacs.course_subject_id
+          AND sacs_row.school_year_id = sacs.school_year_id
+          AND sacs_row.id <= sacs.id
+          AND NOT EXISTS (
+              SELECT 1
+              FROM course_subject_student css_exam_row
+              INNER JOIN course_subject cos_exam_row
+                  ON cos_exam_row.id = css_exam_row.course_subject_id
+              INNER JOIN career_subject_school_year cssy_exam_row
+                  ON cssy_exam_row.id = cos_exam_row.career_subject_school_year_id
+              INNER JOIN course_subject_student_examination csse_row
+                  ON csse_row.course_subject_student_id = css_exam_row.id
+              INNER JOIN examination_subject es_row
+                  ON es_row.id = csse_row.examination_subject_id
+              WHERE css_exam_row.student_id = sacs_row.student_id
+                AND cssy_exam_row.career_subject_id = cssy_row.career_subject_id
+                AND es_row.career_subject_school_year_id = cssy_exam_row.id
+                AND csse_row.is_absent = 0
+                AND csse_row.can_take_examination = 1
+                AND csse_row.mark IS NOT NULL
+                AND csse_row.mark >= @nota_aprobacion_examen
+          )
+    ) AS renglon,
+
+    0 AS pct_asistencia,
+    '' AS cond_regularidad,
+    '' AS fecha_vigencia,
+    102 AS escala_nota,
+
+    REPLACE(
+        CAST(ROUND(sacs.mark, 2) AS CHAR),
+        '.',
+        ','
+    ) AS nota,
+
+    'A' AS resultado,
+
+    CONCAT(
+        'Promoción/fin de cursada desde Kimkelen; ',
+        'student_approved_course_subject_id=', sacs.id,
+        '; estudiante=', TRIM(CONCAT(p.lastname, ', ', p.firstname)),
+        '; materia=', subj.name
+    ) AS observaciones
+
+FROM student_approved_course_subject sacs
+INNER JOIN course_subject cos
+    ON cos.id = sacs.course_subject_id
+INNER JOIN course c
+    ON c.id = cos.course_id
+INNER JOIN career_subject_school_year cssy
+    ON cssy.id = cos.career_subject_school_year_id
+INNER JOIN career_subject cs
+    ON cs.id = cssy.career_subject_id
+INNER JOIN subject subj
+    ON subj.id = cs.subject_id
+INNER JOIN career ca
+    ON ca.id = cs.career_id
+INNER JOIN student st
+    ON st.id = sacs.student_id
+INNER JOIN person p
+    ON p.id = st.person_id
+INNER JOIN school_year sy
+    ON sy.id = sacs.school_year_id
+
+WHERE sacs.mark IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM course_subject_student css_exam
+      INNER JOIN course_subject cos_exam
+          ON cos_exam.id = css_exam.course_subject_id
+      INNER JOIN career_subject_school_year cssy_exam
+          ON cssy_exam.id = cos_exam.career_subject_school_year_id
+      INNER JOIN course_subject_student_examination csse
+          ON csse.course_subject_student_id = css_exam.id
+      INNER JOIN examination_subject es
+          ON es.id = csse.examination_subject_id
+      WHERE css_exam.student_id = sacs.student_id
+        AND cssy_exam.career_subject_id = cs.id
+        AND es.career_subject_school_year_id = cssy_exam.id
+        AND csse.is_absent = 0
+        AND csse.can_take_examination = 1
+        AND csse.mark IS NOT NULL
+        AND csse.mark >= @nota_aprobacion_examen
+  )
+
+-- Para limitar por año, descomentar:
+   AND sy.year = 2024
+
+ORDER BY
+    sy.year,
+    c.name,
+    subj.name,
+    p.lastname,
+    p.firstname,
+    sacs.id;
